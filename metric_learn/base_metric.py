@@ -2,7 +2,7 @@
 Base module.
 """
 
-from sklearn.base import BaseEstimator
+from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.extmath import stable_cumsum
 from sklearn.utils.validation import _is_arraylike, check_is_fitted
 from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve
@@ -166,12 +166,16 @@ class BaseMetricLearner(BaseEstimator, metaclass=ABCMeta):
     self._check_preprocessor()
 
     check_is_fitted(self, ['preprocessor_'])
-    return check_input(X, y,
+    outs = check_input(X, y,
                        type_of_inputs=type_of_inputs,
                        preprocessor=self.preprocessor_,
                        estimator=self,
                        tuple_size=getattr(self, '_tuple_size', None),
                        **kwargs)
+    # Conform to SLEP010
+    if not hasattr(self, 'n_features_in_'):
+      self.n_features_in_ = (outs if y is None else outs[0]).shape[1]
+    return outs
 
   @abstractmethod
   def get_metric(self):
@@ -460,7 +464,7 @@ class MahalanobisMixin(BaseMetricLearner, MetricTransformer,
     return self.components_.T.dot(self.components_)
 
 
-class _PairsClassifierMixin(BaseMetricLearner):
+class _PairsClassifierMixin(BaseMetricLearner, ClassifierMixin):
   """Base class for pairs learners.
 
   Attributes
@@ -471,6 +475,7 @@ class _PairsClassifierMixin(BaseMetricLearner):
     classified as dissimilar.
   """
 
+  classes_ = np.array([0, 1])
   _tuple_size = 2  # number of points in a tuple, 2 for pairs
 
   def predict(self, pairs):
@@ -748,11 +753,12 @@ class _PairsClassifierMixin(BaseMetricLearner):
                          'Got {} instead.'.format(type(beta)))
 
 
-class _TripletsClassifierMixin(BaseMetricLearner):
+class _TripletsClassifierMixin(BaseMetricLearner, ClassifierMixin):
   """
   Base class for triplets learners.
   """
 
+  classes_ = np.array([0, 1])
   _tuple_size = 3  # number of points in a tuple, 3 for triplets
 
   def predict(self, triplets):
@@ -833,11 +839,12 @@ class _TripletsClassifierMixin(BaseMetricLearner):
     return self.predict(triplets).mean() / 2 + 0.5
 
 
-class _QuadrupletsClassifierMixin(BaseMetricLearner):
+class _QuadrupletsClassifierMixin(BaseMetricLearner, ClassifierMixin):
   """
   Base class for quadruplets learners.
   """
 
+  classes_ = np.array([0, 1])
   _tuple_size = 4  # number of points in a tuple, 4 for quadruplets
 
   def predict(self, quadruplets):

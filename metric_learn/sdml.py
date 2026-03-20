@@ -6,7 +6,13 @@ import warnings
 import numpy as np
 from sklearn.base import TransformerMixin
 from scipy.linalg import pinvh
-from sklearn.covariance import graphical_lasso
+try:
+  from sklearn.covariance._graph_lasso import (
+    _graphical_lasso as graphical_lasso
+  )
+except ImportError:
+  from sklearn.covariance import graphical_lasso
+
 from sklearn.exceptions import ConvergenceWarning
 
 from .base_metric import MahalanobisMixin, _PairsClassifierMixin
@@ -43,6 +49,9 @@ class _BaseSDML(MahalanobisMixin):
         print("SDML will use skggm's graphical lasso solver.")
     pairs, y = self._prepare_inputs(pairs, y,
                                     type_of_inputs='tuples')
+    n_features = pairs.shape[2]
+    if n_features < 2:
+      raise ValueError(f"Cannot fit SDML with {n_features} feature(s)")
 
     # set up (the inverse of) the prior M
     # if the prior is the default (None), we raise a warning
@@ -76,13 +85,14 @@ class _BaseSDML(MahalanobisMixin):
                                 msg=self.verbose,
                                 Theta0=theta0, Sigma0=sigma0)
       else:
-        _, M = graphical_lasso(emp_cov, alpha=self.sparsity_param,
-                               verbose=self.verbose,
-                               cov_init=sigma0)
+        _, M, *_ = graphical_lasso(emp_cov, alpha=self.sparsity_param,
+                                   verbose=self.verbose,
+                                   cov_init=sigma0)
       raised_error = None
       w_mahalanobis, _ = np.linalg.eigh(M)
       not_spd = any(w_mahalanobis < 0.)
       not_finite = not np.isfinite(M).all()
+    # TODO: Narrow this to the specific exceptions we expect.
     except Exception as e:
       raised_error = e
       not_spd = False  # not_spd not applicable here so we set to False
@@ -177,7 +187,7 @@ class SDML(_BaseSDML, _PairsClassifierMixin):
   >>> iris_data = load_iris()
   >>> X = iris_data['data']
   >>> Y = iris_data['target']
-  >>> sdml = SDML_Supervised(num_constraints=200)
+  >>> sdml = SDML_Supervised(n_constraints=200)
   >>> sdml.fit(X, Y)
 
   References
@@ -262,7 +272,7 @@ class SDML_Supervised(_BaseSDML, TransformerMixin):
       (n_features, n_features), that will be used as such to set the
       prior.
 
-  num_constraints : int, optional (default=None)
+  n_constraints : int, optional (default=None)
     Number of constraints to generate. If None, defaults to `20 *
     num_classes**2`.
 
@@ -279,6 +289,8 @@ class SDML_Supervised(_BaseSDML, TransformerMixin):
     prior. In any case, `random_state` is also used to randomly sample
     constraints from labels.
 
+  num_constraints : Renamed to n_constraints. Will be deprecated in 0.7.0
+
   Attributes
   ----------
   components_ : `numpy.ndarray`, shape=(n_features, n_features)
@@ -293,13 +305,22 @@ class SDML_Supervised(_BaseSDML, TransformerMixin):
   """
 
   def __init__(self, balance_param=0.5, sparsity_param=0.01, prior='identity',
-               num_constraints=None, verbose=False, preprocessor=None,
-               random_state=None):
+               n_constraints=None, verbose=False, preprocessor=None,
+               random_state=None, num_constraints='deprecated'):
     _BaseSDML.__init__(self, balance_param=balance_param,
                        sparsity_param=sparsity_param, prior=prior,
                        verbose=verbose,
                        preprocessor=preprocessor, random_state=random_state)
-    self.num_constraints = num_constraints
+    if num_constraints != 'deprecated':
+      warnings.warn('"num_constraints" parameter has been renamed to'
+                    ' "n_constraints". It has been deprecated in'
+                    ' version 0.6.3 and will be removed in 0.7.0'
+                    '', FutureWarning)
+      self.n_constraints = num_constraints
+    else:
+      self.n_constraints = n_constraints
+    # Avoid test get_params from failing (all params passed sholud be set)
+    self.num_constraints = 'deprecated'
 
   def fit(self, X, y):
     """Create constraints from labels and learn the SDML model.
@@ -318,13 +339,13 @@ class SDML_Supervised(_BaseSDML, TransformerMixin):
       Returns the instance.
     """
     X, y = self._prepare_inputs(X, y, ensure_min_samples=2)
-    num_constraints = self.num_constraints
-    if num_constraints is None:
+    n_constraints = self.n_constraints
+    if n_constraints is None:
       num_classes = len(np.unique(y))
-      num_constraints = 20 * num_classes**2
+      n_constraints = 20 * num_classes**2
 
     c = Constraints(y)
-    pos_neg = c.positive_negative_pairs(num_constraints,
+    pos_neg = c.positive_negative_pairs(n_constraints,
                                         random_state=self.random_state)
     pairs, y = wrap_pairs(X, pos_neg)
     return _BaseSDML._fit(self, pairs, y)

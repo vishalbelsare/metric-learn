@@ -15,6 +15,7 @@ from sklearn.utils.multiclass import type_of_target
 from metric_learn.sklearn_shims import set_random_state
 
 from metric_learn._util import make_context, _initialize_metric_mahalanobis
+from metric_learn.sdml import _BaseSDML
 from metric_learn.base_metric import (_QuadrupletsClassifierMixin,
                                       _TripletsClassifierMixin,
                                       _PairsClassifierMixin)
@@ -215,8 +216,7 @@ def test_get_metric_equivalent_to_explicit_mahalanobis(estimator,
   metric = model.get_metric()
   n_features = X.shape[1]
   a, b = (rng.randn(n_features), rng.randn(n_features))
-  expected_dist = mahalanobis(a[None], b[None],
-                              VI=model.get_mahalanobis_matrix())
+  expected_dist = mahalanobis(a, b, VI=model.get_mahalanobis_matrix())
   assert_allclose(metric(a, b), expected_dist, rtol=1e-13)
 
 
@@ -291,7 +291,11 @@ def test_components_is_2D(estimator, build_dataset):
   model.fit(*remove_y(estimator, input_data, labels))
   assert model.components_.shape == (X.shape[1], X.shape[1])
 
-  # test that it works for 1 feature. Use 2nd dimention, to avoid border cases
+  if isinstance(estimator, _BaseSDML):
+    # SDML doesn't support running on a single feature.
+    return
+
+  # test that it works for 1 feature. Use 2nd dimension, to avoid border cases
   trunc_data = input_data[..., 1:2]
   # we drop duplicates that might have been formed, i.e. of the form
   # aabc or abcc or aabb for quadruplets, and aa for pairs.
@@ -438,7 +442,7 @@ def test_auto_init_transformation(n_samples, n_features, n_classes,
                           random_state=rng)
     # To make the test work for LMNN:
     if 'LMNN' in model_base.__class__.__name__:
-      model_base.set_params(k=1)
+      model_base.set_params(n_neighbors=1)
     # To make the test faster for estimators that have a max_iter:
     if hasattr(model_base, 'max_iter'):
       model_base.set_params(max_iter=1)

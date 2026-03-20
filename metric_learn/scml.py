@@ -53,7 +53,7 @@ class _BaseSCML(MahalanobisMixin):
       raise ValueError("batch_size should be an integer, instead it is of type"
                        " %s" % type(self.batch_size))
 
-    if(self.output_iter > self.max_iter):
+    if self.output_iter > self.max_iter:
       raise ValueError("The value of output_iter must be equal or smaller than"
                        " max_iter.")
 
@@ -240,6 +240,12 @@ class _BaseSCML(MahalanobisMixin):
       raise ValueError("n_basis should be an integer, instead it is of type %s"
                        % type(self.n_basis))
 
+    if n_features > n_triplets:
+      raise ValueError(
+        "Number of features (%s) is greater than the number of triplets(%s).\n"
+        "Consider using dimensionality reduction or using another basis "
+        "generation scheme." % (n_features, n_triplets))
+
     basis = np.zeros((n_basis, n_features))
 
     # get all positive and negative pairs with lowest index first
@@ -260,11 +266,8 @@ class _BaseSCML(MahalanobisMixin):
 
     start = 0
     finish = 0
-
-    while(finish != n_basis):
-
+    while finish != n_basis:
       # Select triplets to yield diff
-
       select_triplet = rng.choice(n_triplets, size=n_features, replace=False)
 
       # select n_features positive differences
@@ -322,9 +325,10 @@ class SCML(_BaseSCML, _TripletsClassifierMixin):
     'triplet_diffs', and an array-like of shape (n_basis, n_features).
 
     'triplet_diffs'
-      The basis set is constructed from the differences between points of
-      `n_basis` positive or negative pairs taken from the triplets
-      constrains.
+      The basis set is constructed iteratively from differences between points
+      of `n_features` positive or negative pairs randomly sampled from the
+      triplets constraints. Requires the number of training triplets to be
+      great or equal to `n_features`.
 
     array-like
         A matrix of shape (n_basis, n_features), that will be used as
@@ -554,7 +558,7 @@ class SCML_Supervised(_BaseSCML, TransformerMixin):
     case one is selected.
     """
 
-    if self.basis == 'lda':
+    if isinstance(self.basis, str) and self.basis == 'lda':
       basis, n_basis = self._generate_bases_LDA(X, y)
     else:
       basis, n_basis = None, None
@@ -602,8 +606,8 @@ class SCML_Supervised(_BaseSCML, TransformerMixin):
                        "should be smaller than %d" %
                        (n_basis, X.shape[0]*2*num_eig))
 
-    kmeans = KMeans(n_clusters=n_clusters, random_state=self.random_state,
-                    algorithm='elkan').fit(X)
+    kmeans = KMeans(n_clusters=n_clusters, n_init=10,
+                    random_state=self.random_state, algorithm='elkan').fit(X)
     cX = kmeans.cluster_centers_
 
     n_scales = 2
